@@ -3,6 +3,7 @@
 rule all:
     input:
         "data/reference.fasta"
+        "data/reference.gff"
 
 
 rule download_genome:
@@ -12,3 +13,12 @@ rule download_genome:
         """
         curl -fL "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=CP000253.1&rettype=fasta" -o {output}
         """
+
+rule download_annotation:
+    output:
+        "data/reference/gff"
+    shell:
+        """
+        curl -fL "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=CP000253.1&rettype=gff3&retmode=text" -o {output}
+        """
+        
