@@ -1,0 +1,14 @@
+# Snakefile pour le projet1 avec nos rules:
+
+rule all:
+    input:
+        "data/reference.fasta"
+
+
+rule download_genome:
+    output:
+        "data/reference.fasta"
+    shell:
+        """
+        curl -fL "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=CP000253.1&rettype=fasta" -o {output}
+        """
