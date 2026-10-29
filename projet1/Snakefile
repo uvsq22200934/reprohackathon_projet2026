@@ -2,7 +2,7 @@
 
 rule all:
     input:
-        "data/reference.fasta"
+        "data/reference.fasta",
         "data/reference.gff"
 
 
@@ -21,4 +21,3 @@ rule download_annotation:
         """
         curl -fL "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=CP000253.1&rettype=gff3&retmode=text" -o {output}
         """
-        
