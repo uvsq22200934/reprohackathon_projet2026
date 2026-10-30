@@ -1,13 +1,25 @@
 # Snakefile pour le projet1 avec nos rules:
 
 
+ECHANTILLONS = [
+    "SRR10379721",
+    "SRR10379722",
+    "SRR10379723",
+    "SRR10379724",
+    "SRR10379725",
+    "SRR10379726"
+]
+
+
 rule all:
     input:
         "data/reference.fasta",
-        "data/reference.gff"
+        "data/reference.gff",
+        expand("results/bowtie_index/genome.{ext}", ext=["1.ebwt", "2.ebwt", "3.ebwt", "4.ebwt", "rev.1.ebwt", "rev.2.ebwt"]),
+        expand("data/fastq/{sample}.fastq", sample=ECHANTILLONS)
 
 
-rule download_genome:
+rule download_genome: 
     output:
         "data/reference.fasta"
     shell:
@@ -22,4 +34,37 @@ rule download_annotation:
     shell:
         """
         curl -fL "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=CP000253.1&rettype=gff3&retmode=text" -o {output}
+        """
+
+
+rule index_genome:
+    input:
+        "data/reference.fasta"
+    output:
+        expand("results/bowtie_index/genome.{ext}", ext=["1.ebwt", "2.ebwt", "3.ebwt", "4.ebwt", "rev.1.ebwt", "rev.2.ebwt"])
+    shell:
+        """
+        mkdir -p results/bowtie_index
+        docker run --rm --user $(id -u):$(id -g) \
+            -v "$PWD:/work" \
+            -w /work \
+            bowtie-project \
+            bowtie-build {input} results/bowtie_index/genome
+        """
+
+
+
+rule download_fastq:
+    output:
+        "data/fastq/{sample}.fastq"
+    params:
+        sample="{sample}"
+    shell:
+        """
+        mkdir -p data/fastq
+        docker run --rm --user $(id -u):$(id -g) \
+            -v "$PWD:/work" \
+            -w /work \
+            sra-project \
+            fasterq-dump {params.sample} -O data/fastq
         """
