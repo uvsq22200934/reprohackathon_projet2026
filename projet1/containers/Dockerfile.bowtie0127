@@ -1,0 +1,28 @@
+FROM ubuntu:24.04
+
+LABEL description="Bowtie 0.12.7 compiled from official source"
+LABEL bowtie.version="0.12.7"
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        wget \
+        unzip && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /tmp/bowtie-build
+
+RUN wget -O bowtie-0.12.7-src.zip \
+    "https://sourceforge.net/projects/bowtie-bio/files/bowtie/0.12.7/bowtie-0.12.7-src.zip/download" && \
+    echo "609a6a0ad0b1a5d97908ca17da7bbf5d6dc407c7b9c49713cdc9c40f056a586a  bowtie-0.12.7-src.zip" | sha256sum -c - && \
+    unzip -q bowtie-0.12.7-src.zip && \
+    cd bowtie-0.12.7 && \
+    make -j2 EXTRA_CXXFLAGS=-fpermissive && \
+    install -m 0755 bowtie bowtie-build bowtie-inspect /usr/local/bin/ && \
+    cd / && \
+    rm -rf /tmp/bowtie-build
+
+WORKDIR /work
+
+CMD ["bowtie", "--version"]

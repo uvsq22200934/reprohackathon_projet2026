@@ -48,7 +48,7 @@ rule index_genome:
         docker run --rm --user $(id -u):$(id -g) \
             -v "$PWD:/work" \
             -w /work \
-            bowtie-project \
+            bowtie-0127 \
             bowtie-build {input} results/bowtie_index/genome
         """
 
