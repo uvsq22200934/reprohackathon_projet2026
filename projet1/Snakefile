@@ -22,8 +22,12 @@ rule all:
                  "rev.1.ebwt", "rev.2.ebwt"]
         ),
         expand("data/fastq/{sample}.fastq.gz", sample=ECHANTILLONS),
-        expand("results/trimmed/{sample}.trimmed.fastq.gz",
-               sample=ECHANTILLONS)
+        #TRIMMING
+        expand("results/trimmed/{sample}.trimmed.fastq.gz", sample=ECHANTILLONS),
+        #MAPPING
+        expand("results/aligned/{sample}.sam", sample=ECHANTILLONS),
+        #COUNT
+        expand("results/counts/{sample}.txt", sample=ECHANTILLONS)
 
 
 rule download_genome:
@@ -94,4 +98,40 @@ rule trim_reads:
         mkdir -p results/trimmed
         cutadapt -q 20 -m 25 -a {params.adapter} \
             -o {output} {input}
+        """
+rule align_reads:
+    input:
+        reads="results/trimmed/{sample}.trimmed.fastq.gz",
+        index=expand(
+            "results/bowtie_index/genome.{ext}",
+            ext=["1.ebwt", "2.ebwt", "3.ebwt", "4.ebwt", "rev.1.ebwt", "rev.2.ebwt"]
+        )
+    output:
+        "results/aligned/{sample}.sam"
+    shell:
+        """
+        mkdir -p results/aligned
+        docker run --rm --user $(id -u):$(id -g) \
+            -v "$PWD:/work" \
+            -w /work \
+            bowtie-0127 \
+            bowtie -S results/bowtie_index/genome <(zcat {input.reads}) > {output}
+        """
+
+#règle de comptage des reads avec featureCounts
+
+rule count_reads:
+    input:
+        sam="results/aligned/{sample}.sam",
+        annotation="data/reference.gff"
+    output:
+        "results/counts/{sample}.txt"
+    shell:
+        """
+        mkdir -p results/counts
+        docker run --rm --user $(id -u):$(id -g) \
+            -v "$PWD:/work" \
+            -w /work \
+            quay.io/biocontainers/subread:2.0.1--h7132678_0 \
+            featureCounts -t gene -g ID -a {input.annotation} -o {output} {input.sam}
         """
