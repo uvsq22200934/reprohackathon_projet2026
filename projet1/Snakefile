@@ -25,7 +25,8 @@ rule all:
         #TRIMMING
         expand("results/trimmed/{sample}.trimmed.fastq.gz", sample=ECHANTILLONS),
         #MAPPING
-        expand("results/aligned/{sample}.sam", sample=ECHANTILLONS),
+        expand("results/aligned/{sample}.bam", sample=ECHANTILLONS),
+        expand("results/aligned/{sample}.bam.bai", sample=ECHANTILLONS),
         #COUNT
         expand("results/counts/{sample}.txt", sample=ECHANTILLONS)
 
@@ -71,16 +72,16 @@ rule index_genome:
 rule download_fastq:
     output:
         "data/fastq/{sample}.fastq.gz"
-    params:
-        sample="{sample}"
     shell:
         """
         mkdir -p data/fastq
         docker run --rm --user $(id -u):$(id -g) \
             -v "$PWD:/work" \
             -w /work \
-            sra-project \
-            bash -c "fasterq-dump {params.sample} --threads 2 --progress -O data/fastq && gzip data/fastq/{params.sample}.fastq"
+            quay.io/biocontainers/sra-tools:3.0.3--h87f3376_0 \
+            fasterq-dump {wildcards.sample} \
+                --threads 2 --progress -O /work/data/fastq
+        gzip data/fastq/{wildcards.sample}.fastq
         """
 
 
@@ -98,40 +99,64 @@ rule trim_reads:
         mkdir -p results/trimmed
         cutadapt -q 20 -m 25 -a {params.adapter} \
             -o {output} {input}
+
         """
+
 rule align_reads:
     input:
         reads="results/trimmed/{sample}.trimmed.fastq.gz",
         index=expand(
             "results/bowtie_index/genome.{ext}",
-            ext=["1.ebwt", "2.ebwt", "3.ebwt", "4.ebwt", "rev.1.ebwt", "rev.2.ebwt"]
+            ext=["1.ebwt", "2.ebwt", "3.ebwt", "4.ebwt",
+                 "rev.1.ebwt", "rev.2.ebwt"]
         )
     output:
-        "results/aligned/{sample}.sam"
+        bam="results/aligned/{sample}.bam",
+        bai="results/aligned/{sample}.bam.bai"
+    threads: 2
     shell:
         """
         mkdir -p results/aligned
+
         docker run --rm --user $(id -u):$(id -g) \
-            -v "$PWD:/work" \
-            -w /work \
+            -v "$PWD:/work" -w /work \
             bowtie-0127 \
-            bowtie -S results/bowtie_index/genome <(zcat {input.reads}) > {output}
+            bash -o pipefail -c \
+            'gzip -dc "/work/{input.reads}" | bowtie -q -p {threads} -S /work/results/bowtie_index/genome -' \
+        | docker run --rm -i --user $(id -u):$(id -g) \
+            -v "$PWD:/work" -w /work \
+            quay.io/biocontainers/samtools:1.13--h8c37831_0 \
+            samtools sort -@ {threads} -o "/work/{output.bam}" -
+
+        docker run --rm --user $(id -u):$(id -g) \
+            -v "$PWD:/work" -w /work \
+            quay.io/biocontainers/samtools:1.13--h8c37831_0 \
+            samtools index "/work/{output.bam}"
         """
 
 #règle de comptage des reads avec featureCounts
-
 rule count_reads:
     input:
-        sam="results/aligned/{sample}.sam",
+        bam="results/aligned/{sample}.bam",
         annotation="data/reference.gff"
     output:
         "results/counts/{sample}.txt"
+    threads: 2
     shell:
         """
         mkdir -p results/counts
+
         docker run --rm --user $(id -u):$(id -g) \
-            -v "$PWD:/work" \
-            -w /work \
-            quay.io/biocontainers/subread:2.0.1--h7132678_0 \
-            featureCounts -t gene -g ID -a {input.annotation} -o {output} {input.sam}
+            -v "$PWD:/work" -w /work \
+            featurecounts-146p3 \
+            featureCounts \
+                -t gene \
+                -g ID \
+                -s 1 \
+                -F GTF \
+                -T {threads} \
+                -a /work/{input.annotation} \
+                -o /work/{output} \
+                /work/{input.bam}
         """
+

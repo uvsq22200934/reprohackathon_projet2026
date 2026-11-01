@@ -1,0 +1,21 @@
+FROM ubuntu:22.04
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        wget \
+        tar && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt
+
+RUN wget -O subread.tar.gz \
+    "https://downloads.sourceforge.net/project/subread/subread-1.4.6-p3/subread-1.4.6-p3-Linux-x86_64.tar.gz" && \
+    echo "8d2011a6d8050285ef551538849ffb92d9f5b18d4d9320abf3de101c0c183602  subread.tar.gz" | sha256sum -c - && \
+    tar -xzf subread.tar.gz && \
+    install -m 0755 subread-1.4.6-p3-Linux-x86_64/bin/featureCounts /usr/local/bin/featureCounts && \
+    rm -rf subread.tar.gz subread-1.4.6-p3-Linux-x86_64
+
+WORKDIR /work
+
+CMD ["featureCounts", "-v"]
