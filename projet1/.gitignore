@@ -1,10 +1,6 @@
-
-
 # Données et résultats volumineux
-project1/data/
-project1/results/
+/data/
+/results/
 
 # Fichiers temporaires Snakemake
 .snakemake/
-project1/.snakemake/
-
