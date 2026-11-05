@@ -31,7 +31,7 @@ rule all:
         expand("results/counts/{sample}.txt", sample=ECHANTILLONS)
 
 
-rule download_genome:
+rule download_genome: #ok fonctionne
     output:
         "data/reference.fasta"
     shell:
@@ -40,7 +40,7 @@ rule download_genome:
         """
 
 
-rule download_annotation:
+rule download_annotation: #ok fonctionne
     output:
         "data/reference.gff"
     shell:
@@ -49,7 +49,7 @@ rule download_annotation:
         """
 
 
-rule index_genome:
+rule index_genome: #ok fonctionne
     input:
         "data/reference.fasta"
     output:
@@ -86,20 +86,17 @@ rule download_fastq:
 
 
 rule trim_reads:
-    input:
-        "data/fastq/{sample}.fastq.gz"
-    output:
-        "results/trimmed/{sample}.trimmed.fastq.gz"
-    params:
-        adapter=ADAPTATEUR
-    container:
-        IMAGE_CUTADAPT
+    input: "data/fastq/{sample}.fastq.gz"
+    output: "results/trimmed/{sample}.trimmed.fastq.gz"
+    params: adapter=ADAPTATEUR
     shell:
         """
         mkdir -p results/trimmed
-        cutadapt -q 20 -m 25 -a {params.adapter} \
-            -o {output} {input}
-
+        docker run --rm --user $(id -u):$(id -g) \
+            -v "$PWD:/work" -w /work \
+            quay.io/biocontainers/cutadapt:1.11--py35_0 \
+            cutadapt -q 20 -m 25 -a {params.adapter} \
+                -o {output} {input}
         """
 
 rule align_reads:
@@ -134,29 +131,45 @@ rule align_reads:
             samtools index "/work/{output.bam}"
         """
 
+
+rule convert_gff_to_saf:
+    input:
+        "data/reference.gff"
+    output:
+        "data/reference.saf"
+    shell:
+        """
+        awk -F '\\t' 'BEGIN {{OFS="\\t"; print "GeneID","Chr","Start","End","Strand"}}
+        $3=="gene" {{
+            split($9, a, ";")
+            for (i in a) {{
+                if (a[i] ~ /^locus_tag=/) {{
+                    split(a[i], b, "=")
+                    print b[2], $1, $4, $5, $7
+                }}
+            }}
+        }}' {input} > {output}
+        """
+
+
 #règle de comptage des reads avec featureCounts
 rule count_reads:
     input:
         bam="results/aligned/{sample}.bam",
-        annotation="data/reference.gff"
-    output:
-        "results/counts/{sample}.txt"
+        annotation="data/reference.saf"
+    output: "results/counts/{sample}.txt"
     threads: 2
     shell:
         """
         mkdir -p results/counts
-
         docker run --rm --user $(id -u):$(id -g) \
             -v "$PWD:/work" -w /work \
             featurecounts-146p3 \
             featureCounts \
-                -t gene \
-                -g ID \
-                -s 1 \
-                -F GTF \
-                -T {threads} \
+                -s 1 -F SAF -T {threads} \
                 -a /work/{input.annotation} \
                 -o /work/{output} \
                 /work/{input.bam}
         """
+
 

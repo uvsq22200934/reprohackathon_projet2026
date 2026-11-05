@@ -12,5 +12,17 @@ python3 -m venv "$HOME/snakemake-env"
     "snakemake==7.32.4" \
     "pulp==2.7.0"
 
+
+
+cd "$(dirname "$0")"
+
+#Construire les images Docker nécessaires
+docker build -t bowtie-0127 \
+    -f containers/Dockerfile.bowtie0127 
+
+docker build -t featurecounts-146p3 \
+    -f containers/Dockerfile.featurecounts 
+
+
 echo "Pour utiliser Snakemake :"
 echo "source ~/snakemake-env/bin/activate"
