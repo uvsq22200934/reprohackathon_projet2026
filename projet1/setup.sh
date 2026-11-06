@@ -18,10 +18,10 @@ cd "$(dirname "$0")"
 
 #Construire les images Docker nécessaires
 docker build -t bowtie-0127 \
-    -f containers/Dockerfile.bowtie0127 
+    -f containers/Dockerfile.bowtie0127 .
 
 docker build -t featurecounts-146p3 \
-    -f containers/Dockerfile.featurecounts 
+    -f containers/Dockerfile.featurecounts .
 
 
 echo "Pour utiliser Snakemake :"

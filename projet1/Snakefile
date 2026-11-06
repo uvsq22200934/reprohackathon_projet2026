@@ -36,6 +36,7 @@ rule download_genome: #ok fonctionne
         "data/reference.fasta"
     shell:
         """
+        mkdir -p data
         curl -fL "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=CP000253.1&rettype=fasta" -o {output}
         """
 
@@ -45,6 +46,7 @@ rule download_annotation: #ok fonctionne
         "data/reference.gff"
     shell:
         """
+        mkdir -p data
         curl -fL "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=CP000253.1&rettype=gff3&retmode=text" -o {output}
         """
 
@@ -99,6 +101,7 @@ rule trim_reads:
                 -o {output} {input}
         """
 
+
 rule align_reads:
     input:
         reads="results/trimmed/{sample}.trimmed.fastq.gz",
@@ -115,24 +118,38 @@ rule align_reads:
         """
         mkdir -p results/aligned
 
+        #alignement avec Bowtie: creation du fichier SAM
         docker run --rm --user $(id -u):$(id -g) \
             -v "$PWD:/work" -w /work \
             bowtie-0127 \
             bash -o pipefail -c \
             'gzip -dc "/work/{input.reads}" | bowtie -q -p {threads} -S /work/results/bowtie_index/genome -' \
-        | docker run --rm -i --user $(id -u):$(id -g) \
-            -v "$PWD:/work" -w /work \
-            quay.io/biocontainers/samtools:1.13--h8c37831_0 \
-            samtools sort -@ {threads} -o "/work/{output.bam}" -
+            > results/aligned/{wildcards.sample}.sam
+
+                #tri et conversion du SAM en BAM avec Samtools
+        
+        rm -f results/aligned/{wildcards.sample}_tri_temp.*
 
         docker run --rm --user $(id -u):$(id -g) \
             -v "$PWD:/work" -w /work \
             quay.io/biocontainers/samtools:1.13--h8c37831_0 \
+            samtools sort -@ {threads} \
+            -T "/work/results/aligned/{wildcards.sample}_tri_temp" \
+            -o "/work/{output.bam}" \
+            "/work/results/aligned/{wildcards.sample}.sam"
+
+
+        #indexation du fichier BAM
+        docker run --rm --user $(id -u):$(id -g) \
+            -v "$PWD:/work" -w /work \
+            quay.io/biocontainers/samtools:1.13--h8c37831_0 \
             samtools index "/work/{output.bam}"
+
+        # Suppression du fichier SAM intermediaire
+        rm results/aligned/{wildcards.sample}.sam
         """
 
-
-rule convert_gff_to_saf:
+rule convert_gff_to_saf: #conversion
     input:
         "data/reference.gff"
     output:
