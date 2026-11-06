@@ -4,7 +4,7 @@
 set -e
 
 sudo apt-get update
-sudo apt-get install -y python3.10-venv
+sudo apt-get install -y python3.10-venv curl
 
 python3 -m venv "$HOME/snakemake-env"
 
