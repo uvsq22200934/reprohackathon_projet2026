@@ -149,44 +149,31 @@ rule align_reads:
         rm results/aligned/{wildcards.sample}.sam
         """
 
-rule convert_gff_to_saf: #conversion
-    input:
-        "data/reference.gff"
-    output:
-        "data/reference.saf"
-    shell:
-        """
-        awk -F '\\t' 'BEGIN {{OFS="\\t"; print "GeneID","Chr","Start","End","Strand"}}
-        $3=="gene" {{
-            split($9, a, ";")
-            for (i in a) {{
-                if (a[i] ~ /^locus_tag=/) {{
-                    split(a[i], b, "=")
-                    print b[2], $1, $4, $5, $7
-                }}
-            }}
-        }}' {input} > {output}
-        """
 
 
-#règle de comptage des reads avec featureCounts
+# Comptage des reads avec featureCounts
 rule count_reads:
     input:
         bam="results/aligned/{sample}.bam",
-        annotation="data/reference.saf"
-    output: "results/counts/{sample}.txt"
+        annotation="data/reference.gff"
+    output:
+        "results/counts/{sample}.txt"
     threads: 2
     shell:
         """
         mkdir -p results/counts
+
         docker run --rm --user $(id -u):$(id -g) \
             -v "$PWD:/work" -w /work \
             featurecounts-146p3 \
             featureCounts \
-                -s 1 -F SAF -T {threads} \
+                --extraAttributes Name \
+                -t gene \
+                -g ID \
+                -s 1 \
+                -F GTF \
+                -T {threads} \
                 -a /work/{input.annotation} \
                 -o /work/{output} \
                 /work/{input.bam}
         """
-
-
