@@ -1,0 +1,28 @@
+# R 3.4.1 + DESeq2 1.16.1
+FROM rocker/r-ver:3.4.1
+
+# System dependencies required by Bioconductor packages
+RUN printf 'deb http://archive.debian.org/debian stretch main\n\
+deb http://archive.debian.org/debian-security stretch/updates main\n' \
+    > /etc/apt/sources.list && \
+    apt-get -o Acquire::Check-Valid-Until=false update && \
+    apt-get install -y --no-install-recommends \
+    zlib1g-dev \
+    libcurl4-openssl-dev \
+    libssl-dev \
+    libxml2-dev \
+    libsqlite3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+LABEL description="R 3.4.1 and DESeq2 1.16.1 for RNA-seq differential expression"
+
+# Historical CRAN snapshot + Bioconductor 3.5
+RUN R -e 'repos <- c(CRAN="https://packagemanager.posit.co/cran/2017-10-10", BioCsoft="https://bioconductor.org/packages/3.5/bioc", BioCann="https://bioconductor.org/packages/3.5/data/annotation", BioCexp="https://bioconductor.org/packages/3.5/data/experiment", BioCextra="https://bioconductor.org/packages/3.5/extra"); install.packages("DESeq2", repos=repos, dependencies=c("Depends","Imports","LinkingTo"))'
+
+# Verify exact versions
+RUN R -e 'stopifnot(getRversion() == "3.4.1")' && \
+    R -e 'stopifnot(as.character(packageVersion("DESeq2")) == "1.16.1")'
+
+WORKDIR /work
+
+CMD ["R"]

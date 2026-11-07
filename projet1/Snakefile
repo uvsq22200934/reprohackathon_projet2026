@@ -28,7 +28,13 @@ rule all:
         expand("results/aligned/{sample}.bam", sample=ECHANTILLONS),
         expand("results/aligned/{sample}.bam.bai", sample=ECHANTILLONS),
         #COUNT
-        expand("results/counts/{sample}.txt", sample=ECHANTILLONS)
+        expand("results/counts/{sample}.txt", sample=ECHANTILLONS),
+        # DIFFERENTIAL EXPRESSION
+        "results/deseq2/differential_expression.csv",
+        "results/deseq2/normalized_counts.tsv",
+        "results/deseq2/dds.rds",
+        "results/deseq2/MA_plot.pdf",
+        "results/deseq2/sessionInfo.txt"
 
 
 rule download_genome: #ok fonctionne
@@ -167,7 +173,6 @@ rule count_reads:
             -v "$PWD:/work" -w /work \
             featurecounts-146p3 \
             featureCounts \
-                --extraAttributes Name \
                 -t gene \
                 -g ID \
                 -s 1 \
@@ -176,4 +181,23 @@ rule count_reads:
                 -a /work/{input.annotation} \
                 -o /work/{output} \
                 /work/{input.bam}
+        """
+
+# Analyse différentielle avec DESeq2 1.16.1
+rule differential_expression:
+    input:
+        expand("results/counts/{sample}.txt", sample=ECHANTILLONS)
+    output:
+        csv="results/deseq2/differential_expression.csv",
+        normalized="results/deseq2/normalized_counts.tsv",
+        dds="results/deseq2/dds.rds",
+        ma="results/deseq2/MA_plot.pdf",
+        session="results/deseq2/sessionInfo.txt"
+    shell:
+        """
+        mkdir -p results/deseq2
+        docker run --rm --user $(id -u):$(id -g) \
+            -v "$PWD:/work" -w /work \
+            deseq2:1.16.1 \
+            Rscript scripts/differential_expression.R
         """
