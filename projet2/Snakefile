@@ -1,0 +1,347 @@
+
+import csv
+
+# ============================================================
+# PROJET 2 - RNA-seq Toxoplasma gondii
+# Reproduction de l'analyse transcriptomique de Hu et al. (2020)
+#
+# Workflow :
+# 1Téléchargement des FASTQ (SRA Toolkit)
+# 2Nettoyage des reads (Trimmomatic 0.39)
+# 3Téléchargement du génome et de l'annotation (Ensembl 100)
+# 4Construction du transcriptome (gffread 0.12.7)
+# 5Construction de l'index (Salmon 1.2.0)
+#
+
+# ------------------------------------------------------------
+# CHARGEMENT DES ECHANTILLONS
+# ------------------------------------------------------------
+
+# Le fichier samples.tsv contient aussi les conditions et les jours
+# d'infection, qui serviront plus tard pour DESeq2.
+
+with open("config/samples.tsv") as f:
+    samples = [
+        row["sample"]
+        for row in csv.DictReader(f, delimiter="\t")
+    ]
+
+
+# ------------------------------------------------------------
+# RULE ALL
+# ------------------------------------------------------------
+
+# La règle all définit les fichiers attendus à la fin du workflow.
+
+rule all:
+    input:
+        expand("results/trimmed/{sample}_1_paired.fastq.gz",
+               sample=samples),
+        expand("results/trimmed/{sample}_2_paired.fastq.gz",
+               sample=samples),
+	expand("results/trimmed/{sample}_1_unpaired.fastq.gz",
+               sample=samples),
+        expand("results/trimmed/{sample}_2_unpaired.fastq.gz",
+               sample=samples),
+
+        # Index du transcriptome pour Salmon
+        "data/reference/salmon_index"
+
+
+# ------------------------------------------------------------
+# TELECHARGEMENT DES SAMPLES
+# ------------------------------------------------------------
+
+# Les données proviennent du projet SRA PRJNA483261.
+# Les 12 échantillons ont été séquencés en paired-end.
+#
+# fasterq-dump --split-files produit deux fichiers :
+#   SRR_1.fastq : lectures R1
+#   SRR_2.fastq : lectures R2
+#
+# Les fichiers sont ensuite compressés au format FASTQ.gz.
+
+rule download_fastq:
+    output:
+        r1="data/fastq/{sample}_1.fastq.gz",
+        r2="data/fastq/{sample}_2.fastq.gz"
+    threads: 2
+    params:
+        image="quay.io/biocontainers/sra-tools:3.0.3--h87f3376_0"
+    shell:
+        """
+        # Création des dossiers de sortie et des fichiers temporaires
+        mkdir -p data/fastq data/tmp
+
+        # Exécution de SRA Toolkit dans Docker
+        # --rm : suppression du conteneur après exécution
+        # -v : partage du dossier du projet avec le conteneur
+        # -w : définition du répertoire de travail
+        # --split-files : séparation des lectures R1 et R2
+        # --temp : emplacement des fichiers temporaires
+
+        docker run --rm \
+	--user "$(id -u):$(id -g)" \
+            -v "$PWD":/work \
+            -w /work \
+            {params.image} \
+            fasterq-dump \
+            --split-files \
+            --threads {threads} \
+            --temp /work/data/tmp \
+            --outdir /work/data/fastq \
+            {wildcards.sample}
+
+        # Compression des deux fichiers FASTQ
+        gzip -f data/fastq/{wildcards.sample}_1.fastq
+        gzip -f data/fastq/{wildcards.sample}_2.fastq
+        """
+
+
+# ------------------------------------------------------------
+# NETTOYAGE DES READS AVEC TRIMMOMATIC
+# ------------------------------------------------------------
+
+# Quatre fichiers sont produits :
+#   R1 paired   : lecture R1 dont le partenaire R2 est conservé
+#   R1 unpaired : lecture R1 conservée seule
+#   R2 paired   : lecture R2 dont le partenaire R1 est conservé
+#   R2 unpaired : lecture R2 conservée seule
+#
+# Paramètres :
+# Ces paramètres sont provisoires et devront être documentés.
+
+rule trim_reads:
+    input:
+        r1="data/fastq/{sample}_1.fastq.gz",
+        r2="data/fastq/{sample}_2.fastq.gz"
+    output:
+        r1_p="results/trimmed/{sample}_1_paired.fastq.gz",
+        r1_u="results/trimmed/{sample}_1_unpaired.fastq.gz",
+        r2_p="results/trimmed/{sample}_2_paired.fastq.gz",
+        r2_u="results/trimmed/{sample}_2_unpaired.fastq.gz"
+    threads: 2
+    params:
+        image="quay.io/biocontainers/trimmomatic:0.39--1"
+    shell:
+        """
+        # Création du répertoire des reads nettoyés
+        mkdir -p results/trimmed
+
+        # Exécution de Trimmomatic en mode paired-end
+
+        docker run --rm \
+        --user "$(id -u):$(id -g)" \
+	    -v "$PWD":/work \
+            -w /work \
+            {params.image} \
+            trimmomatic PE \
+            -threads {threads} \
+            {input.r1} {input.r2} \
+            {output.r1_p} {output.r1_u} \
+            {output.r2_p} {output.r2_u} \
+            SLIDINGWINDOW:4:15 \
+            MINLEN:36
+        """
+
+
+# ------------------------------------------------------------
+# TELECHARGEMENT DU GENOME DE REFERENCE
+# ------------------------------------------------------------
+
+# Téléchargement du génome de souris Mus musculus :
+# Assemblage : GRCm38
+# Base de données : Ensembl
+# Version : release 100
+#
+# Le génome est téléchargé au format FASTA compressé.
+
+rule download_genome:
+    output:
+        "data/reference/genome.fa.gz"
+    params:
+        image="reprohackathon-wget:1.0"
+    shell:
+        """
+        # Création du répertoire des références
+        mkdir -p data/reference
+
+        # Téléchargement du génome depuis Ensembl avec wget
+        # -O : chemin du fichier de sortie
+
+        docker run --rm \
+        --user "$(id -u):$(id -g)" \
+	    -v "$PWD":/work \
+            -w /work \
+            {params.image} \
+            wget -O {output} \
+            https://ftp.ensembl.org/pub/release-100/fasta/mus_musculus/dna/Mus_musculus.GRCm38.dna.toplevel.fa.gz
+        """
+
+
+# ------------------------------------------------------------
+# TELECHARGEMENT DE L'ANNOTATION
+# ------------------------------------------------------------
+
+# Téléchargement de l'annotation du génome GRCm38.
+# Format : GFF3 compressé
+# Version : Ensembl release 100
+#
+# Le fichier décrit les positions des gènes, transcrits et exons.
+
+rule download_annotation:
+    output:
+        "data/reference/annotation.gff3.gz"
+    params:
+        image="reprohackathon-wget:1.0"
+    shell:
+        """
+        # Création du répertoire des références
+        mkdir -p data/reference
+
+        # Téléchargement de l'annotation GFF3 depuis Ensembl
+
+        docker run --rm \
+        --user "$(id -u):$(id -g)" \
+	    -v "$PWD":/work \
+            -w /work \
+            {params.image} \
+            wget -O {output} \
+            https://ftp.ensembl.org/pub/release-100/gff3/mus_musculus/Mus_musculus.GRCm38.100.gff3.gz
+        """
+
+
+# ------------------------------------------------------------
+# CONSTRUCTION DU TRANSCRIPTOME AVEC GFFREAD
+# ------------------------------------------------------------
+
+# gffread 0.12.7 extrait les séquences des transcrits
+# à partir du génome FASTA et de l'annotation GFF3.
+#
+# Etapes :
+# Décompression du génome
+# Décompression de l'annotation
+# Extraction des séquences des transcrits
+#
+# -g : génome de référence
+# -w : fichier FASTA des transcrits produit
+#
+# Le transcriptome sera utilisé pour l'indexation Salmon.
+
+rule build_transcriptome:
+    input:
+        genome="data/reference/genome.fa.gz",
+        annotation="data/reference/annotation.gff3.gz"
+    output:
+        "data/reference/transcripts.fa"
+    params:
+        image="reprohackathon-gffread:1.0"
+    shell:
+        """
+        # Création du répertoire des références
+        mkdir -p data/reference
+
+        # Décompression des références dans le conteneur
+        # puis extraction des séquences des transcrits
+
+        docker run --rm \
+        --user "$(id -u):$(id -g)" \
+	    -v "$PWD":/work \
+            -w /work \
+            {params.image} \
+            sh -c '
+                gzip -dc {input.genome} > data/reference/genome.fa &&
+                gzip -dc {input.annotation} > data/reference/annotation.gff3 &&
+                gffread data/reference/annotation.gff3 \
+                    -g data/reference/genome.fa \
+                    -w {output}
+            '
+        """
+
+
+# ------------------------------------------------------------
+# CONSTRUCTION DE L'INDEX SALMON
+# ------------------------------------------------------------
+
+# Cet index permettra ensuite de quantifier l'abondance
+# des transcrits dans chacun des 12 échantillons RNA-seq.
+#
+# Paramètres :
+# -t : transcriptome FASTA
+# -i : répertoire de sortie de l'index
+# -k : longueur des k-mers (31)
+# -p : nombre de threads
+#
+# Le paramètre k=31 est un choix provisoire.
+
+rule salmon_index:
+    input:
+        "data/reference/transcripts.fa"
+    output:
+        directory("data/reference/salmon_index")
+    threads: 2
+    params:
+        image="quay.io/biocontainers/salmon:1.2.0--hf69c8f4_0"
+    shell:
+        """
+        # Construction de l'index du transcriptome
+        # avec Salmon 1.2.0 dans Docker
+
+        docker run --rm \
+	 --user "$(id -u):$(id -g)" \
+		 -v "$PWD":/work \
+            -w /work \
+            {params.image} \
+            salmon index \
+            -t {input} \
+            -i {output} \
+            -k 31 \
+            -p {threads}
+        """
+# ============================================================
+# QUANTIFICATION DES TRANSCRITS AVEC SALMON
+# ============================================================
+rule salmon_quant:
+    input:
+        # Index du transcriptome construit précédemment
+        index="data/reference/salmon_index",
+
+        # Reads paired-end nettoyés par Trimmomatic
+        r1="results/trimmed/{sample}_1_paired.fastq.gz",
+        r2="results/trimmed/{sample}_2_paired.fastq.gz"
+
+    output:
+        # Dossier contenant les résultats de quantification
+        directory("results/salmon/{sample}")
+
+    threads: 2
+
+    params:
+        image="quay.io/biocontainers/salmon:1.2.0--hf69c8f4_0"
+
+    shell:
+        """
+        mkdir -p results/salmon
+
+        # Quantification des transcrits avec Salmon
+        # -i : index du transcriptome
+        # -l A : détection automatique du type de librairie
+        # -1 et -2 : fichiers FASTQ paired-end
+        # --validateMappings : validation des alignements
+        # -p : nombre de threads
+        # -o : dossier de sortie
+
+        docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -v "$PWD":/work \
+            -w /work \
+            {params.image} \
+            salmon quant \
+            -i {input.index} \
+            -l A \
+            -1 {input.r1} \
+            -2 {input.r2} \
+            --validateMappings \
+            -p {threads} \
+            -o {output}
+        """

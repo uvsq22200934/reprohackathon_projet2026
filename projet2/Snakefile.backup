@@ -1,0 +1,146 @@
+import csv
+ #chargement des samples
+with open("config/samples.tsv") as f:
+    samples = [row["sample"] for row in csv.DictReader(f, delimiter="\t")]
+
+#fichier attendu en sortie
+rule all:
+    input:
+        expand("results/trimmed/{sample}_1_paired.fastq.gz", sample=samples),
+        expand("results/trimmed/{sample}_2_paired.fastq.gz", sample=samples),
+        expand("results/trimmed/{sample}_1_unpaired.fastq.gz", sample=samples),
+        expand("results/trimmed/{sample}_2_unpaired.fastq.gz", sample=samples),
+        "data/reference/salmon_index"
+
+#telechargement des reads PE
+rule download_fastq:
+    output:
+        r1="data/fastq/{sample}_1.fastq.gz",
+        r2="data/fastq/{sample}_2.fastq.gz"
+    threads: 2
+    params:
+        image="quay.io/biocontainers/sra-tools:3.0.3--h87f3376_0"
+    shell:
+        """
+        mkdir -p data/fastq
+
+        docker run --rm \
+            -v "$PWD":/work \
+            -w /work \
+            {params.image} \
+            fasterq-dump --split-files \
+            --threads {threads} \
+            --progress \
+            -O data/fastq \
+            {wildcards.sample}
+
+        gzip -f data/fastq/{wildcards.sample}_1.fastq
+        gzip -f data/fastq/{wildcards.sample}_2.fastq
+        """
+
+#rule Trimming
+#Trimming en paired-end
+rule trim_reads : 
+    input:
+        r1="data/fastq/{sample}_1.fastq.gz",
+        r2="data/fastq/{sample}_2.fastq.gz"
+    output:
+        r1_p="results/trimmed/{sample}_1_paired.fastq.gz",
+        r1_u="results/trimmed/{sample}_1_unpaired.fastq.gz",
+        r2_p="results/trimmed/{sample}_2_paired.fastq.gz",
+        r2_u="results/trimmed/{sample}_2_unpaired.fastq.gz"
+    threads: 2
+    params:
+        image="quay.io/biocontainers/trimmomatic:0.39--1"
+    shell:
+        """
+        mkdir -p results/trimmed
+
+        docker run --rm \
+            -v "$PWD":/work \
+            -w /work \
+            {params.image} \
+            trimmomatic PE -threads {threads} \
+            {input.r1} {input.r2} \
+            {output.r1_p} {output.r1_u} \
+            {output.r2_p} {output.r2_u} \
+            SLIDINGWINDOW:4:15 MINLEN:36 #PARAM A VERIFIER
+        """
+#rule indexation Salmon
+#Télécharger le génome de souris GRCm38 et son annotation Ensembl 100
+rule download_genome:
+    output:
+        "data/reference/genome.fa.gz"
+    params:
+        image="reprohackathon-wget:1.0"
+    shell:
+        """
+        mkdir -p data/reference
+
+        docker run --rm \
+            -v "$PWD":/work \
+            -w /work \
+            {params.image} \
+            wget -O {output} \
+            https://ftp.ensembl.org/pub/release-100/fasta/mus_musculus/dna/Mus_musculus.GRCm38.dna.toplevel.fa.gz
+        """
+rule download_annotation:
+    output:
+        "data/reference/annotation.gff3.gz"
+    params:
+        image="reprohackathon-wget:1.0"
+    shell:
+        """
+        mkdir -p data/reference
+
+        docker run --rm \
+            -v "$PWD":/work \
+            -w /work \
+            {params.image} \
+            wget -O {output} \
+            https://ftp.ensembl.org/pub/release-100/gff3/mus_musculus/Mus_musculus.GRCm38.100.gff3.gz
+        """
+#construire le transcriptome 
+rule build_transcriptome:
+    input:
+        genome="data/reference/genome.fa.gz",
+        annotation="data/reference/annotation.gff3.gz"
+    output:
+        "data/reference/transcripts.fa"
+    params:
+        image="reprohackathon-gffread:1.0"
+    shell:
+        """
+        mkdir -p data/reference
+
+        docker run --rm \
+            -v "$PWD":/work \
+            -w /work \
+            {params.image} \
+            sh -c 'gzip -dc {input.genome} > data/reference/genome.fa && \
+                   gzip -dc {input.annotation} > data/reference/annotation.gff3 && \
+                   gffread data/reference/annotation.gff3 \
+                   -g data/reference/genome.fa \
+                   -w {output}'
+        """
+#rule indexation SALMON
+rule salmon_index:
+    input:
+        "data/reference/transcripts.fa"
+    output:
+        directory("data/reference/salmon_index")
+    threads: 2
+    params:
+        image="quay.io/biocontainers/salmon:1.2.0--hf69c8f4_0"
+    shell:
+        """
+        docker run --rm \
+            -v "$PWD":/work \
+            -w /work \
+            {params.image} \
+            salmon index \
+            -t {input} \
+            -i {output} \
+            -k 31 \
+            -p {threads}
+        """
