@@ -37,25 +37,34 @@ rule all:
         "results/deseq2/sessionInfo.txt"
 
 
-rule download_genome: #ok fonctionne
+#Téléchargement du génome de référence ( curl est exécuté dans un conteneur pour maîtriser son environnement).
+rule download_genome:
     output:
         "data/reference.fasta"
     shell:
         """
         mkdir -p data
-        curl -fL "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=CP000253.1&rettype=fasta" -o {output}
+        docker run --rm --user $(id -u):$(id -g) \
+            -v "$PWD:/work" -w /work \
+            workflow-utils \
+            curl -fL "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=CP000253.1&rettype=fasta" \
+            -o {output}
         """
 
 
-rule download_annotation: #ok fonctionne
+# Téléchargement de l'annotation génomique au format GFF3.
+rule download_annotation:
     output:
         "data/reference.gff"
     shell:
         """
         mkdir -p data
-        curl -fL "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=CP000253.1&rettype=gff3&retmode=text" -o {output}
+        docker run --rm --user $(id -u):$(id -g) \
+            -v "$PWD:/work" -w /work \
+            workflow-utils \
+            curl -fL "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=CP000253.1&rettype=gff3&retmode=text" \
+            -o {output}
         """
-
 
 rule index_genome: #ok fonctionne
     input:
@@ -77,21 +86,26 @@ rule index_genome: #ok fonctionne
         """
 
 
+# Téléchargement des fichiers FASTQ depuis SRA avec fasterq-dump.
+# Compression des fichiers avec gzip dans le conteneur workflow-utils.
 rule download_fastq:
     output:
         "data/fastq/{sample}.fastq.gz"
     shell:
         """
         mkdir -p data/fastq
+
         docker run --rm --user $(id -u):$(id -g) \
-            -v "$PWD:/work" \
-            -w /work \
+            -v "$PWD:/work" -w /work \
             quay.io/biocontainers/sra-tools:3.0.3--h87f3376_0 \
             fasterq-dump {wildcards.sample} \
                 --threads 2 --progress -O /work/data/fastq
-        gzip data/fastq/{wildcards.sample}.fastq
-        """
 
+        docker run --rm --user $(id -u):$(id -g) \
+            -v "$PWD:/work" -w /work \
+            workflow-utils \
+            gzip data/fastq/{wildcards.sample}.fastq
+        """
 
 rule trim_reads:
     input: "data/fastq/{sample}.fastq.gz"
