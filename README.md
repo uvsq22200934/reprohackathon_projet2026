@@ -103,6 +103,117 @@ L'index permet à Bowtie de rechercher efficacement la position des lectures RNA
 
 
 
+# Projet 2 : réponse transcriptomique du cerveau de souris à l'infection par *Toxoplasma gondii* (Hu et al., Frontiers in Microbiology, 2020)
 
+**Article scientifique :** [Hu et al. (2020) - Frontiers in Microbiology](https://www.frontiersin.org/journals/microbiology/articles/10.3389/fmicb.2020.570903/full)
 
+## Introduction
+
+Ce projet vise à reproduire une partie de l'analyse RNA-seq présentée dans l'article de Hu et al. (2020), qui étudie les modifications de l'expression des transcrits dans le cerveau de souris infectées par *Toxoplasma gondii*.
+
+L'objectif est de comparer les souris infectées aux souris témoins à deux stades de l'infection : aigu (J11) et chronique (J33), afin d'identifier les transcrits différentiellement exprimés (DETs) et de reproduire le diagramme de Venn de la Figure 2B de l'article.
+
+## Organisation du projet
+
+```text
+projet2/
+│
+├── config/
+│   └── samples.tsv
+│
+├── containers/
+│   ├── Dockerfile.wget
+│   ├── Dockerfile.gffread
+│   └── Dockerfile.R
+│
+├── data/
+│   ├── metadata/
+│   │   └── SraRunInfo.csv
+│   └── reference/
+│
+├── scripts/
+│   └── deseq2.R
+│
+├── results/              # Généré lors de l'exécution
+│
+├── Snakefile
+├── run.sh
+└── README.md
+```
+
+### Rôle des principaux fichiers et dossiers
+
+- **`config/`** : contient les informations sur les échantillons (conditions expérimentales, jours d'infection et réplicats).
+- **`containers/`** : contient les Dockerfiles permettant de construire les environnements logiciels nécessaires au workflow.
+- **`data/`** : contient les métadonnées et les données de référence utilisées pour l'analyse.
+- **`scripts/`** : contient les scripts d'analyse, notamment `deseq2.R` pour l'analyse différentielle.
+- **`results/`** : accueillera les fichiers intermédiaires et les résultats générés par le pipeline.
+- **`Snakefile`** : définit les différentes étapes du workflow et leurs dépendances à l'aide de Snakemake.
+- **`run.sh`** : automatise la préparation des environnements Docker et le lancement du workflow.
+
+## Étapes du workflow
+
+### 1. Téléchargement des données RNA-seq
+
+Téléchargement des reads RNA-seq depuis la base de données NCBI SRA à partir des identifiants des échantillons.
+
+Les 12 échantillons sont répartis en quatre groupes :
+- Infection aiguë (J11) : infectés et témoins.
+- Infection chronique (J33) : infectés et témoins.
+
+Chaque groupe comprend trois réplicats biologiques.
+
+### 2. Nettoyage des reads (Trimmomatic)
+
+Nettoyage des reads bruts avec Trimmomatic afin de retirer les adaptateurs et les séquences de mauvaise qualité.
+
+### 3. Préparation du transcriptome de référence
+
+Téléchargement du génome de souris GRCm38 et de son annotation Ensembl 100.
+
+Utilisation de gffread pour extraire les séquences transcriptomiques à partir du génome et de son annotation.
+
+### 4. Construction de l'index transcriptomique (Salmon)
+
+Construction d'un index du transcriptome avec Salmon, nécessaire à la quantification des transcrits.
+
+### 5. Quantification des transcrits (Salmon)
+
+Quantification des reads nettoyés pour chaque échantillon avec Salmon.
+
+Cette étape produit notamment un fichier `quant.sf` par échantillon, contenant les estimations d'abondance des transcrits (TPM et nombre estimé de reads).
+
+### 6. Analyse différentielle (DESeq2)
+
+Importation des fichiers `quant.sf` dans R avec tximport, puis analyse différentielle avec DESeq2.
+
+Deux comparaisons sont réalisées :
+- J11 : souris infectées vs souris témoins.
+- J33 : souris infectées vs souris témoins.
+
+L'objectif est d'identifier les transcrits différentiellement exprimés pour chaque stade de l'infection.
+
+### 7. Reproduction du diagramme de Venn (Figure 2B)
+
+Comparaison des listes de transcrits différentiellement exprimés obtenues à J11 et J33 afin d'identifier les transcrits communs et ceux spécifiques à chaque stade de l'infection.
+
+Ces résultats permettront de reproduire le diagramme de Venn présenté dans la Figure 2B de l'article.
+
+## Exécution du workflow
+
+Le pipeline utilise Snakemake pour orchestrer les étapes et Docker pour gérer les environnements logiciels.
+
+Depuis le dossier `projet2/` :
+
+```bash
+bash run.sh
+```
+
+Pour simuler les étapes du workflow :
+
+```bash
+snakemake -n --cores 2
+```
+
+Le mode simulation permet de vérifier le plan d'exécution sans lancer les analyses.
 
