@@ -16,3 +16,4 @@ projet2/.snakemake/
 # Fichiers temporaires
 *.log
 *.tmp
+projet2/.venv/
