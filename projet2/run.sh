@@ -46,7 +46,8 @@ docker info >/dev/null 2>&1 || {
 # Vérifier la présence des fichiers nécessaires.
 for file in Snakefile config/samples.tsv \
     containers/Dockerfile.wget \
-    containers/Dockerfile.gffread; do
+    containers/Dockerfile.gffread \
+    containers/Dockerfile.R; do
 
     if [[ ! -f "$file" ]]; then
         echo "Erreur : fichier manquant : $file"
@@ -72,6 +73,12 @@ echo "Construction de l'image gffread..."
 docker build \
     -t reprohackathon-gffread:1.0 \
     -f containers/Dockerfile.gffread .
+
+# Construire l'image contenant R, DESeq2 et tximport.
+echo "Construction de l'image R..."
+docker build \
+    -t reprohackathon-r:1.0 \
+    -f containers/Dockerfile.R .
 
 # Télécharger les images nécessaires aux autres étapes.
 echo "Récupération des images bioinformatiques..."

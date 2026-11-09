@@ -35,17 +35,21 @@ with open("config/samples.tsv") as f:
 
 rule all:
     input:
-        expand("results/trimmed/{sample}_1_paired.fastq.gz",
-               sample=samples),
-        expand("results/trimmed/{sample}_2_paired.fastq.gz",
-               sample=samples),
-	expand("results/trimmed/{sample}_1_unpaired.fastq.gz",
-               sample=samples),
-        expand("results/trimmed/{sample}_2_unpaired.fastq.gz",
-               sample=samples),
+        # Reads nettoyés
+        expand("results/trimmed/{sample}_1_paired.fastq.gz", sample=samples),
+        expand("results/trimmed/{sample}_2_paired.fastq.gz", sample=samples),
+        expand("results/trimmed/{sample}_1_unpaired.fastq.gz", sample=samples),
+        expand("results/trimmed/{sample}_2_unpaired.fastq.gz", sample=samples),
 
         # Index du transcriptome pour Salmon
-        "data/reference/salmon_index"
+        "data/reference/salmon_index",
+
+        # Quantifications Salmon des 12 échantillons
+        expand("results/salmon/{sample}", sample=samples),
+
+        # Résultats de l'analyse différentielle
+        "results/deseq2/day11_DETs.tsv",
+        "results/deseq2/day33_DETs.tsv"
 
 
 # ------------------------------------------------------------
@@ -344,4 +348,32 @@ rule salmon_quant:
             --validateMappings \
             -p {threads} \
             -o {output}
+        """
+
+# ============================================================
+# ANALYSE DIFFERENTIELLE AVEC DESEQ2
+# ============================================================
+
+rule deseq2:
+    input:
+        # Dossiers de quantification des 12 échantillons
+        quantifications=expand("results/salmon/{sample}", sample=samples),
+        metadata="config/samples.tsv"
+
+    output:
+        acute="results/deseq2/day11_DETs.tsv",
+        chronic="results/deseq2/day33_DETs.tsv"
+
+    params:
+        image="reprohackathon-r:1.0"
+
+    shell:
+        """
+        # Exécution du script R dans l'image Docker contenant DESeq2 et tximport
+        docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -v "$PWD":/project \
+            -w /project \
+            {params.image} \
+            Rscript scripts/deseq2.R
         """
