@@ -35,21 +35,12 @@ with open("config/samples.tsv") as f:
 
 rule all:
     input:
-        # Reads nettoyés
-        expand("results/trimmed/{sample}_1_paired.fastq.gz", sample=samples),
-        expand("results/trimmed/{sample}_2_paired.fastq.gz", sample=samples),
-        expand("results/trimmed/{sample}_1_unpaired.fastq.gz", sample=samples),
-        expand("results/trimmed/{sample}_2_unpaired.fastq.gz", sample=samples),
-
-        # Index du transcriptome pour Salmon
-        "data/reference/salmon_index",
-
-        # Quantifications Salmon des 12 échantillons
-        expand("results/salmon/{sample}", sample=samples),
-
-        # Résultats de l'analyse différentielle
-        "results/deseq2/day11_DETs.tsv",
-        "results/deseq2/day33_DETs.tsv"
+        # Les quatre diagrammes de Venn constituent les résultats finaux.
+        expand(
+            "results/venn/venn_{direction}_{criterion}.png",
+            direction=["upregulated", "downregulated"],
+            criterion=["raw", "FDR"]
+        )
 
 
 # ------------------------------------------------------------
@@ -356,24 +347,81 @@ rule salmon_quant:
 
 rule deseq2:
     input:
-        # Dossiers de quantification des 12 échantillons
+        # Quantifications Salmon des 12 échantillons
         quantifications=expand("results/salmon/{sample}", sample=samples),
         metadata="config/samples.tsv"
 
     output:
-        acute="results/deseq2/day11_DETs.tsv",
-        chronic="results/deseq2/day33_DETs.tsv"
+        # Résultats complets et listes de transcrits différentiellement exprimés
+        "results/deseq2/day11_all.tsv",
+        "results/deseq2/day33_all.tsv",
+        "results/deseq2/day11_DETs.tsv",
+        "results/deseq2/day33_DETs.tsv",
+        "results/deseq2/day11_DETs_FDR.tsv",
+        "results/deseq2/day33_DETs_FDR.tsv",
+        "results/deseq2/acute_upregulated.tsv",
+        "results/deseq2/acute_downregulated.tsv",
+        "results/deseq2/chronic_upregulated.tsv",
+        "results/deseq2/chronic_downregulated.tsv",
+        "results/deseq2/acute_upregulated_FDR.tsv",
+        "results/deseq2/acute_downregulated_FDR.tsv",
+        "results/deseq2/chronic_upregulated_FDR.tsv",
+        "results/deseq2/chronic_downregulated_FDR.tsv",
+        "results/deseq2/deseq2_summary.tsv"
 
     params:
         image="reprohackathon-r:1.0"
 
     shell:
         """
-        # Exécution du script R dans l'image Docker contenant DESeq2 et tximport
-        docker run --rm \
-            --user "$(id -u):$(id -g)" \
-            -v "$PWD":/project \
-            -w /project \
-            {params.image} \
+        docker run --rm \\
+            --user "$(id -u):$(id -g)" \\
+            -v "$PWD":/project \\
+            -w /project \\
+            {params.image} \\
             Rscript scripts/deseq2.R
         """
+# ============================================================
+# GENERATION DES DIAGRAMMES DE VENN
+# ============================================================
+
+# Comparaison des transcrits différentiellement exprimés
+# entre l'infection aiguë (J11) et chronique (J33).
+#
+# Quatre diagrammes sont générés :
+# - Transcrits surexprimés (upregulated)
+# - Transcrits sous-exprimés (downregulated)
+# - Critère basé sur la p-value brute
+# - Critère basé sur la p-value ajustée (FDR)
+
+rule venn:
+    input:
+        # Les listes de transcrits produites par DESeq2
+        expand(
+            "results/deseq2/{prefix}_{direction}{suffix}.tsv",
+            prefix=["acute", "chronic"],
+            direction=["upregulated", "downregulated"],
+            suffix=["", "_FDR"]
+        )
+
+    output:
+        # Quatre diagrammes : deux directions et deux critères statistiques
+        "results/venn/venn_upregulated_raw.png",
+        "results/venn/venn_downregulated_raw.png",
+        "results/venn/venn_upregulated_FDR.png",
+        "results/venn/venn_downregulated_FDR.png"
+
+    params:
+        image="reprohackathon-r:1.0"
+
+    shell:
+        """
+        docker run --rm \\
+            --user "$(id -u):$(id -g)" \\
+            -v "$PWD":/project \\
+            -w /project \\
+            {params.image} \\
+            Rscript scripts/venn.R
+        """
+
+
