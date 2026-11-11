@@ -1,4 +1,4 @@
-# Snakefile - Projet 1 : RNA-seq Staphylococcus aureus
+# Snakefile projet 1 :RNA-seq Staphylococcus aureus
 
 ECHANTILLONS = [
     "SRR10379721",
@@ -9,10 +9,15 @@ ECHANTILLONS = [
     "SRR10379726"
 ]
 
-ADAPTATEUR = "AGATCGGAAGAGC"
+
+ADAPTATEUR = "AGATCGGAAGAGC" # séquence adaptateur illumina
+# peuvent se retrouver à la fin des read pendant le sequensage 
+# >> ne font pas partie du génome bactérien il faut donc les retirer pour ne pas perturber l'alignement
+
+#image du conteneur contenant cutatapt
 IMAGE_CUTADAPT = "docker://quay.io/biocontainers/cutadapt:1.11--py35_0"
 
-rule all:
+rule all: #tous les fichiers à produire
     input:
         "data/reference.fasta",
         "data/reference.gff",
@@ -52,7 +57,7 @@ rule download_genome:
         """
 
 
-# Téléchargement de l'annotation génomique au format GFF3.
+#téléchargement de l'annotation génomique (format GGF3)
 rule download_annotation:
     output:
         "data/reference.gff"
@@ -87,7 +92,7 @@ rule index_genome: #ok fonctionne
 
 
 # Téléchargement des fichiers FASTQ depuis SRA avec fasterq-dump.
-# Compression des fichiers avec gzip dans le conteneur workflow-utils.
+# Compression des fichiers avec gzip dans le conteneur utils.
 rule download_fastq:
     output:
         "data/fastq/{sample}.fastq.gz"
@@ -107,7 +112,7 @@ rule download_fastq:
             gzip data/fastq/{wildcards.sample}.fastq
         """
 
-rule trim_reads:
+rule trim_reads: #nettoyage des reads avec cutadapt
     input: "data/fastq/{sample}.fastq.gz"
     output: "results/trimmed/{sample}.trimmed.fastq.gz"
     params: adapter=ADAPTATEUR
@@ -117,12 +122,12 @@ rule trim_reads:
         docker run --rm --user $(id -u):$(id -g) \
             -v "$PWD:/work" -w /work \
             quay.io/biocontainers/cutadapt:1.11--py35_0 \
-            cutadapt -q 20 -m 25 -a {params.adapter} \
+            cutadapt -q 20 -m 25 -a {params.adapter} \ # supprimer bases mauvaises qualité (-q 20) et reitrer les reads trop courts (-m25)
                 -o {output} {input}
         """
 
 
-rule align_reads:
+rule align_reads: #alignement des reads nettoyéss sur le genome de ref 
     input:
         reads="results/trimmed/{sample}.trimmed.fastq.gz",
         index=expand(
@@ -171,7 +176,7 @@ rule align_reads:
 
 
 
-rule convert_gff_to_saf:
+rule convert_gff_to_saf: #convertir le fichier d'annotation GFF en SAF pour que features coutns puissent l'utilsier
     input:
         "data/reference.gff"
     output:
@@ -214,7 +219,7 @@ rule count_reads:
                 /work/{input.bam}
         """
 
-# Analyse différentielle avec DESeq2 1.16.1
+#analyse différentielle avec DESeq2 1.16.1
 rule differential_expression:
     input:
         expand("results/counts/{sample}.txt", sample=ECHANTILLONS)

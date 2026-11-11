@@ -1,114 +1,85 @@
+#Production des figures avec R
 
-# ============================================================
-# Differential expression analysis with DESeq2
-# Persister vs Control
-# ============================================================
+# figure 3 supp :
+# Expression différenciel avec DEseq2 :Persister vsControl
+
+
 
 library(DESeq2)
 
-# 1. Sample information --------------------------------------
 
-samples <- c(
-  "SRR10379721", "SRR10379722", "SRR10379723",
-  "SRR10379724", "SRR10379725", "SRR10379726"
-)
+
+echantillons <- c("SRR10379721", "SRR10379722", "SRR10379723",
+  "SRR10379724", "SRR10379725", "SRR10379726") #echantillons
 
 condition <- factor(
   c("Persister", "Persister", "Persister",
     "Control", "Control", "Control"),
-  levels = c("Control", "Persister")
-)
+  levels = c("Control", "Persister")) #on leur attribut leurs conditions
 
-coldata <- data.frame(
-  condition = condition,
-  row.names = samples
-)
 
-# 2. Read featureCounts files --------------------------------
 
-files <- file.path(
-  "results/counts",
-  paste0(samples, ".txt")
-)
+tab_data <- data.frame(condition = condition,row.names = samples)
+
+
+#lectures des fichiers de comptage :
+
+files <- file.path("results/counts",paste0(samples, ".txt"))
 
 if (!all(file.exists(files))) {
-  stop("Some featureCounts files are missing.")
+  stop("fichiers manquants")
 }
 
 count_tables <- lapply(files, function(file) {
-  read.delim(file, comment.char = "#", check.names = FALSE)
-})
+  read.delim(file, comment.char = "#", check.names = FALSE)})
 
-# Check that all samples have the same gene identifiers
-gene_ids <- count_tables[[1]]$Geneid
+
+gene_ids <- count_tables[[1]]$Geneid #verif que tous les echs ont le mm identififiant de gene
 
 for (i in seq_along(count_tables)) {
   if (!identical(gene_ids, count_tables[[i]]$Geneid)) {
-    stop("Gene identifiers differ between samples.")
+    stop("id de gene differe selon l'ech")
   }
 }
 
-# Extract the read counts (last column of each file)
-count_matrix <- do.call(
-  cbind,
-  lapply(count_tables, function(x) {
-    as.integer(x[[ncol(x)]])
-  })
-)
+comptage_matrix <- do.call( #extraction des comptages (derniere colonne de chaque fichier)
+  cbind,lapply(count_tables, function(x) {as.integer(x[[ncol(x)]])}))
 
-rownames(count_matrix) <- gene_ids
-colnames(count_matrix) <- samples
+rownames(comptage_matrix) <- gene_ids
+colnames(comptage_matrix) <- echantillons
 
-# 3. Create DESeq2 dataset -----------------------------------
 
-dds <- DESeqDataSetFromMatrix(
+dds <- DESeqDataSetFromMatrix( #creation dataset DEqes2
   countData = count_matrix,
   colData = coldata,
   design = ~ condition
 )
 
-# 4. Differential expression analysis -----------------------
+
+
+#expression differencielle
 
 dds <- DESeq(dds)
 
-res <- results(
-  dds,
-  contrast = c("condition", "Persister", "Control")
-)
+res <- results(dds,contrast = c("condition", "Persister", "Control"))
 
-# Sort by adjusted p-value
+#tirage selon la pvalue
 res <- res[order(res$padj), ]
 
-# 5. Export results ------------------------------------------
+#exporter les donnees:
+write.csv(as.data.frame(res)file = "results/deseq2/differential_expression.csv")
 
-write.csv(
-  as.data.frame(res),
-  file = "results/deseq2/differential_expression.csv"
-)
-
-write.table(
-  counts(dds, normalized = TRUE),
-  file = "results/deseq2/normalized_counts.tsv",
-  sep = "\t",
-  quote = FALSE,
-  col.names = NA
-)
+write.table(counts(dds, normalized = TRUE),file = "results/deseq2/normalized_counts.tsv",sep = "\t",quote = FALSEcol.names = NA)
 
 saveRDS(dds, "results/deseq2/dds.rds")
 
-# 6. Global MA plot ------------------------------------------
 
-pdf("results/deseq2/MA_plot.pdf", width = 8, height = 6)
+#MA-plot
+pdf("results/deseq2/MA_plot.pdf",width = 8, height= 6)
 
-plotMA(
-  res,
-  ylim = c(-5, 5),
-  main = "Persister vs Control"
-)
+plotMA(res,ylim = c(-5, 5),main = "Persister vs Control")
 
 dev.off()
-
-# 7. Save session information --------------------------------
 
 writeLines(
   capture.output(sessionInfo()),
