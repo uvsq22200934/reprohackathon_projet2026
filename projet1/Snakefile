@@ -171,11 +171,30 @@ rule align_reads:
 
 
 
+rule convert_gff_to_saf:
+    input:
+        "data/reference.gff"
+    output:
+        "data/reference.saf"
+    shell:
+        """
+        awk -F '\\t' 'BEGIN {{OFS="\\t"; print "GeneID","Chr","Start","End","Strand"}}
+        $3=="gene" {{
+            split($9, a, ";")
+            for (i in a) {{
+                if (a[i] ~ /^locus_tag=/) {{
+                    split(a[i], b, "=")
+                    print b[2], $1, $4, $5, $7
+                }}
+            }}
+        }}' {input} > {output}
+        """
+
 # Comptage des reads avec featureCounts
 rule count_reads:
     input:
         bam="results/aligned/{sample}.bam",
-        annotation="data/reference.gff"
+        annotation="data/reference.saf"
     output:
         "results/counts/{sample}.txt"
     threads: 2
@@ -187,10 +206,8 @@ rule count_reads:
             -v "$PWD:/work" -w /work \
             featurecounts-146p3 \
             featureCounts \
-                -t gene \
-                -g ID \
                 -s 1 \
-                -F GTF \
+                -F SAF \
                 -T {threads} \
                 -a /work/{input.annotation} \
                 -o /work/{output} \

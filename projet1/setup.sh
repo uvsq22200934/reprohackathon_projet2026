@@ -23,6 +23,13 @@ docker build -t bowtie-0127 \
 docker build -t featurecounts-146p3 \
     -f containers/Dockerfile.featurecounts .
 
+docker build -t workflow-utils \
+    -f containers/Dockerfile.utils .
+
+#image contenant R et DESeq2
+docker build -t deseq2:1.16.1 \
+    -f containers/Dockerfile.deseq2 .
+
 
 echo "Pour utiliser Snakemake :"
 echo "source ~/snakemake-env/bin/activate"
