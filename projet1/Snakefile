@@ -219,7 +219,7 @@ rule count_reads:
                 /work/{input.bam}
         """
 
-#analyse différentielle avec DESeq2 1.16.1
+#analyse différentielle avec DESeq2 
 rule differential_expression:
     input:
         expand("results/counts/{sample}.txt", sample=ECHANTILLONS)

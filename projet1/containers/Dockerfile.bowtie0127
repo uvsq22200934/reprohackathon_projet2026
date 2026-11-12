@@ -1,6 +1,6 @@
 FROM ubuntu:24.04
 
-LABEL description="Bowtie 0.12.7 compiled from official source"
+LABEL description ="Image Docker avec Bowtie 0.12.7 pour l'alignement des reads RNA-seq"
 LABEL bowtie.version="0.12.7"
 
 RUN apt-get update && \

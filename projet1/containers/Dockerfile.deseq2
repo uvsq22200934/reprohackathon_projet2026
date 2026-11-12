@@ -16,7 +16,7 @@ deb http://archive.debian.org/debian-security stretch/updates main\n' \
 
 LABEL description="R 3.4.1 and DESeq2 1.16.1 for RNA-seq differential expression"
 
-# Historical CRAN snapshot + Bioconductor 3.5
+#hisrotique CRAN snapshot + Bioconductor 3.5
 RUN R -e 'repos <- c(CRAN="https://packagemanager.posit.co/cran/2017-10-10", BioCsoft="https://bioconductor.org/packages/3.5/bioc", BioCann="https://bioconductor.org/packages/3.5/data/annotation", BioCexp="https://bioconductor.org/packages/3.5/data/experiment", BioCextra="https://bioconductor.org/packages/3.5/extra"); install.packages("DESeq2", repos=repos, dependencies=c("Depends","Imports","LinkingTo"))'
 
 # Verify exact versions
