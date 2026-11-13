@@ -1,0 +1,3 @@
+FROM quay.io/biocontainers/cutadapt:1.11--py35_0
+
+LABEL description="Cutadapt 1.11 for RNA-seq reproducibility"

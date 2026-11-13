@@ -1,3 +1,4 @@
+
 # Snakefile projet 1 :RNA-seq Staphylococcus aureus
 
 ECHANTILLONS = [
@@ -14,13 +15,12 @@ ADAPTATEUR = "AGATCGGAAGAGC" # séquence adaptateur illumina
 # peuvent se retrouver à la fin des read pendant le sequensage 
 # >> ne font pas partie du génome bactérien il faut donc les retirer pour ne pas perturber l'alignement
 
-#image du conteneur contenant cutatapt
-IMAGE_CUTADAPT = "docker://quay.io/biocontainers/cutadapt:1.11--py35_0"
 
 rule all: #tous les fichiers à produire
     input:
         "data/reference.fasta",
         "data/reference.gff",
+        "data/reference.saf",
         expand(
             "results/bowtie_index/genome.{ext}",
             ext=["1.ebwt", "2.ebwt", "3.ebwt", "4.ebwt",
@@ -39,6 +39,7 @@ rule all: #tous les fichiers à produire
         "results/deseq2/normalized_counts.tsv",
         "results/deseq2/dds.rds",
         "results/deseq2/MA_plot.pdf",
+        "results/deseq2/MA_plot_translation.pdf",
         "results/deseq2/sessionInfo.txt"
 
 
@@ -53,7 +54,7 @@ rule download_genome:
             -v "$PWD:/work" -w /work \
             workflow-utils \
             curl -fL "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=CP000253.1&rettype=fasta" \
-            -o {output}
+            -o /work/{output}
         """
 
 
@@ -68,8 +69,9 @@ rule download_annotation:
             -v "$PWD:/work" -w /work \
             workflow-utils \
             curl -fL "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=CP000253.1&rettype=gff3&retmode=text" \
-            -o {output}
+            -o /work/{output}
         """
+
 
 rule index_genome: #ok fonctionne
     input:
@@ -87,7 +89,7 @@ rule index_genome: #ok fonctionne
             -v "$PWD:/work" \
             -w /work \
             bowtie-0127 \
-            bowtie-build {input} results/bowtie_index/genome
+            bowtie-build /work/{input} /work/results/bowtie_index/genome
         """
 
 
@@ -100,34 +102,42 @@ rule download_fastq:
         """
         mkdir -p data/fastq
 
-        docker run --rm --user $(id -u):$(id -g) \
-            -v "$PWD:/work" -w /work \
-            quay.io/biocontainers/sra-tools:3.0.3--h87f3376_0 \
-            fasterq-dump {wildcards.sample} \
-                --threads 2 --progress -O /work/data/fastq
+        fasterq-dump {wildcards.sample} \
+            --threads 2 \
+            --progress \
+            -O data/fastq
 
         docker run --rm --user $(id -u):$(id -g) \
             -v "$PWD:/work" -w /work \
             workflow-utils \
-            gzip data/fastq/{wildcards.sample}.fastq
+            gzip /work/data/fastq/{wildcards.sample}.fastq
         """
 
-rule trim_reads: #nettoyage des reads avec cutadapt
-    input: "data/fastq/{sample}.fastq.gz"
-    output: "results/trimmed/{sample}.trimmed.fastq.gz"
-    params: adapter=ADAPTATEUR
+
+rule trim_reads:
+    input:
+        "data/fastq/{sample}.fastq.gz"
+    output:
+        "results/trimmed/{sample}.trimmed.fastq.gz"
+    params:
+        adapter=ADAPTATEUR
     shell:
         """
         mkdir -p results/trimmed
+
         docker run --rm --user $(id -u):$(id -g) \
             -v "$PWD:/work" -w /work \
-            quay.io/biocontainers/cutadapt:1.11--py35_0 \
-            cutadapt -q 20 -m 25 -a {params.adapter} \ # supprimer bases mauvaises qualité (-q 20) et reitrer les reads trop courts (-m25)
-                -o {output} {input}
+            cutadapt-1.11 \
+            cutadapt -q 20 -m 25 -a {params.adapter} \
+                -o /work/{output} /work/{input}
         """
 
 
-rule align_reads: #alignement des reads nettoyéss sur le genome de ref 
+# supprimer bases mauvaises qualité (-q 20) et reitrer les reads trop courts (-m25)
+# La commande de trimming est déjà exécutée dans la règle trim_reads.
+
+
+rule align_reads:
     input:
         reads="results/trimmed/{sample}.trimmed.fastq.gz",
         index=expand(
@@ -143,7 +153,7 @@ rule align_reads: #alignement des reads nettoyéss sur le genome de ref
         """
         mkdir -p results/aligned
 
-        #alignement avec Bowtie: creation du fichier SAM
+        # Alignement avec Bowtie
         docker run --rm --user $(id -u):$(id -g) \
             -v "$PWD:/work" -w /work \
             bowtie-0127 \
@@ -151,29 +161,18 @@ rule align_reads: #alignement des reads nettoyéss sur le genome de ref
             'gzip -dc "/work/{input.reads}" | bowtie -q -p {threads} -S /work/results/bowtie_index/genome -' \
             > results/aligned/{wildcards.sample}.sam
 
-                #tri et conversion du SAM en BAM avec Samtools
-        
-        rm -f results/aligned/{wildcards.sample}_tri_temp.*
+        # Tri et conversion SAM vers BAM avec Samtools (Damona)
+        samtools sort -@ {threads} \
+            -T "results/aligned/{wildcards.sample}_tri_temp" \
+            -o "{output.bam}" \
+            "results/aligned/{wildcards.sample}.sam"
 
-        docker run --rm --user $(id -u):$(id -g) \
-            -v "$PWD:/work" -w /work \
-            quay.io/biocontainers/samtools:1.13--h8c37831_0 \
-            samtools sort -@ {threads} \
-            -T "/work/results/aligned/{wildcards.sample}_tri_temp" \
-            -o "/work/{output.bam}" \
-            "/work/results/aligned/{wildcards.sample}.sam"
+        # Indexation
+        samtools index "{output.bam}"
 
-
-        #indexation du fichier BAM
-        docker run --rm --user $(id -u):$(id -g) \
-            -v "$PWD:/work" -w /work \
-            quay.io/biocontainers/samtools:1.13--h8c37831_0 \
-            samtools index "/work/{output.bam}"
-
-        # Suppression du fichier SAM intermediaire
+        # Suppression du SAM intermédiaire
         rm results/aligned/{wildcards.sample}.sam
         """
-
 
 
 rule convert_gff_to_saf: #convertir le fichier d'annotation GFF en SAF pour que features coutns puissent l'utilsier
@@ -183,17 +182,21 @@ rule convert_gff_to_saf: #convertir le fichier d'annotation GFF en SAF pour que 
         "data/reference.saf"
     shell:
         """
-        awk -F '\\t' 'BEGIN {{OFS="\\t"; print "GeneID","Chr","Start","End","Strand"}}
-        $3=="gene" {{
-            split($9, a, ";")
-            for (i in a) {{
-                if (a[i] ~ /^locus_tag=/) {{
-                    split(a[i], b, "=")
-                    print b[2], $1, $4, $5, $7
+        docker run --rm --user $(id -u):$(id -g) \
+            -v "$PWD:/work" -w /work \
+            workflow-utils \
+            awk -F '\\t' 'BEGIN {{OFS="\\t"; print "GeneID","Chr","Start","End","Strand"}}
+            $3=="gene" {{
+                split($9, a, ";")
+                for (i in a) {{
+                    if (a[i] ~ /^locus_tag=/) {{
+                        split(a[i], b, "=")
+                        print b[2], $1, $4, $5, $7
+                    }}
                 }}
-            }}
-        }}' {input} > {output}
+            }}' /work/{input} > /work/{output}
         """
+
 
 # Comptage des reads avec featureCounts
 rule count_reads:
@@ -219,6 +222,7 @@ rule count_reads:
                 /work/{input.bam}
         """
 
+
 #analyse différentielle avec DESeq2 
 rule differential_expression:
     input:
@@ -228,7 +232,8 @@ rule differential_expression:
         normalized="results/deseq2/normalized_counts.tsv",
         dds="results/deseq2/dds.rds",
         ma="results/deseq2/MA_plot.pdf",
-        session="results/deseq2/sessionInfo.txt"
+        session="results/deseq2/sessionInfo.txt",
+        ma_translation="results/deseq2/MA_plot_translation.pdf"
     shell:
         """
         mkdir -p results/deseq2
