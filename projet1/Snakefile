@@ -21,6 +21,16 @@ rule all: #tous les fichiers à produire
     input:
         "data/reference.fasta",
         "data/reference.gff",
+        "data/kegg/kegg_gene_list.txt",
+        "data/kegg/kegg_pathway_genes.txt",
+        "data/kegg/kegg_brite_genes.txt",
+        "data/kegg/ribosome_genes.txt",
+        "data/kegg/aminoacyl_trna_genes.txt",
+        "data/kegg/translation_factors_genes.txt",
+        "data/kegg/translation_related_genes.txt",
+        "data/kegg/translation_related_genes_gff.txt",
+        "data/kegg/aureowiki/annotations_NCTC8325.tsv",
+        "data/kegg/target_gene_annotations.tsv",
         expand(
             "results/bowtie_index/genome.{ext}",
             ext=["1.ebwt", "2.ebwt", "3.ebwt", "4.ebwt",
@@ -38,7 +48,8 @@ rule all: #tous les fichiers à produire
         "results/deseq2/differential_expression.csv",
         "results/deseq2/normalized_counts.tsv",
         "results/deseq2/dds.rds",
-        "results/deseq2/MA_plot.pdf",
+        "results/deseq2/MA_plot_all_genes.pdf",
+        "results/deseq2/MA_plot_translation_genes.pdf",
         "results/deseq2/sessionInfo.txt"
 
 
@@ -71,6 +82,157 @@ rule download_annotation:
             -o {output}
         """
 
+# Téléchargement des données KEGG
+rule download_kegg:
+    output:
+        genes="data/kegg/kegg_gene_list.txt",
+        pathways="data/kegg/kegg_pathway_genes.txt",
+        brite="data/kegg/kegg_brite_genes.txt"
+    shell:
+        """
+        mkdir -p data/kegg
+
+        docker run --rm --user $(id -u):$(id -g) \
+            -v "$PWD:/work" -w /work \
+            workflow-utils \
+            curl -fL https://rest.kegg.jp/list/sao \
+            -o /work/{output.genes}
+
+        docker run --rm --user $(id -u):$(id -g) \
+            -v "$PWD:/work" -w /work \
+            workflow-utils \
+            curl -fL https://rest.kegg.jp/link/sao/pathway \
+            -o /work/{output.pathways}
+
+        docker run --rm --user $(id -u):$(id -g) \
+            -v "$PWD:/work" -w /work \
+            workflow-utils \
+            curl -fL https://rest.kegg.jp/link/brite/sao \
+            -o /work/{output.brite}
+        """
+
+
+
+
+# Téléchargement des annotations AureoWiki pour NCTC8325
+rule download_aureowiki_annotations:
+    output:
+        "data/kegg/aureowiki/annotations_NCTC8325.tsv"
+    shell:
+        """
+        mkdir -p data/kegg/aureowiki
+        docker run --rm --user $(id -u):$(id -g) \
+            -v "$PWD:/work" -w /work \
+            workflow-utils \
+            curl -fL --retry 5 --retry-all-errors \
+                --connect-timeout 30 --max-time 300 \
+                "https://aureowiki.med.uni-greifswald.de/extensions/AureoDownload/download.php" \
+                --data-urlencode 'gsiStrainSelection[]=NCTC8325:0' \
+                --data-urlencode 'gsiColumnSelection[]=oldLocusTag' \
+                --data-urlencode 'gsiColumnSelection[]=newLocusTag' \
+                --data-urlencode 'gsiColumnSelection[]=symbol' \
+                --data-urlencode 'gsiColumnSelection[]=synonym' \
+                --data-urlencode 'gsiColumnSelection[]=product' \
+                --data-urlencode 'button=Download as Text (.tsv)' \
+                -o /work/{output}
+        """
+
+
+# Extraction des annotations des six gènes ciblés
+rule extract_target_gene_annotations:
+    input:
+        "data/kegg/aureowiki/annotations_NCTC8325.tsv"
+    output:
+        "data/kegg/target_gene_annotations.tsv"
+    shell:
+        """
+        docker run --rm --user $(id -u):$(id -g) -v "$PWD:/work" -w /work workflow-utils \
+            awk -F '\\t' '
+            BEGIN {{
+                OFS = "\\t"
+                print "gene_id", "symbol", "description"
+            }}
+            NR > 1 && $1 ~ /^(SAOUHSC_00475|SAOUHSC_01234|SAOUHSC_01236|SAOUHSC_01246|SAOUHSC_01786|SAOUHSC_02489)$/ {{
+                symbol = $4
+                if ($1 == "SAOUHSC_00475") symbol = "pth"
+                print $1, symbol, $6
+            }}' /work/{input} > {output}
+        """
+
+# Extraction des gènes liés à la traduction depuis KEGG
+rule extract_translation_genes:
+    input:
+        pathways="data/kegg/kegg_pathway_genes.txt",
+        brite="data/kegg/kegg_brite_genes.txt"
+    output:
+        ribosome="data/kegg/ribosome_genes.txt",
+        aminoacyl="data/kegg/aminoacyl_trna_genes.txt",
+        factors="data/kegg/translation_factors_genes.txt"
+    shell:
+        """
+        docker run --rm --user $(id -u):$(id -g) \
+            -v "$PWD:/work" -w /work \
+            workflow-utils \
+            sh -c '
+                grep "path:sao03010" /work/{input.pathways} |
+                cut -f2 | sed "s/^sao://" > /work/{output.ribosome}
+
+                grep "path:sao00970" /work/{input.pathways} |
+                cut -f2 | sed "s/^sao://" > /work/{output.aminoacyl}
+
+                awk "$2 == \\"br:sao03012\\" {{
+                    sub(/^sao:/, \\"\\", \\$1)
+                    print \\$1
+                }}" /work/{input.brite} > /work/{output.factors}
+            '
+        """
+
+
+
+# Fusion des catégories de gènes liés à la traduction
+rule merge_translation_genes:
+    input:
+        "data/kegg/ribosome_genes.txt",
+        "data/kegg/aminoacyl_trna_genes.txt",
+        "data/kegg/translation_factors_genes.txt"
+    output:
+        "data/kegg/translation_related_genes.txt"
+    shell:
+        """
+        docker run --rm --user $(id -u):$(id -g) \
+            -v "$PWD:/work" -w /work \
+            workflow-utils \
+            sh -c 'cat {input} | sort -u > /work/{output}'
+        """
+
+
+
+
+# Filtrage des gènes KEGG présents dans l'annotation GFF
+rule filter_translation_genes:
+    input:
+        genes="data/kegg/translation_related_genes.txt",
+        gff="data/reference.gff"
+    output:
+        "data/kegg/translation_related_genes_gff.txt"
+    shell:
+        """
+        docker run --rm --user $(id -u):$(id -g) \
+            -v "$PWD:/work" -w /work \
+            workflow-utils \
+            sh -c '
+                grep -Ff /work/{input.genes} /work/{input.gff} |
+                grep -oE "locus_tag=[^;]+" |
+                cut -d= -f2 |
+                sort -u > /work/{output}
+            '
+        """
+
+
+
+
+
+
 rule index_genome: #ok fonctionne
     input:
         "data/reference.fasta"
@@ -89,6 +251,12 @@ rule index_genome: #ok fonctionne
             bowtie-0127 \
             bowtie-build {input} results/bowtie_index/genome
         """
+
+
+
+
+
+
 
 
 # Téléchargement des fichiers FASTQ depuis SRA avec fasterq-dump.
@@ -222,13 +390,19 @@ rule count_reads:
 #analyse différentielle avec DESeq2 
 rule differential_expression:
     input:
-        expand("results/counts/{sample}.txt", sample=ECHANTILLONS)
+        counts=expand("results/counts/{sample}.txt", sample=ECHANTILLONS),
+        translation="data/kegg/translation_related_genes_gff.txt",
+        aminoacyl="data/kegg/aminoacyl_trna_genes.txt",
+        annotations="data/kegg/target_gene_annotations.tsv"
     output:
         csv="results/deseq2/differential_expression.csv",
         normalized="results/deseq2/normalized_counts.tsv",
         dds="results/deseq2/dds.rds",
-        ma="results/deseq2/MA_plot.pdf",
+        ma_all="results/deseq2/MA_plot_all_genes.pdf",
+        ma_translation="results/deseq2/MA_plot_translation_genes.pdf",
         session="results/deseq2/sessionInfo.txt"
+
+
     shell:
         """
         mkdir -p results/deseq2
