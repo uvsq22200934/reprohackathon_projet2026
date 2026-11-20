@@ -1,13 +1,10 @@
-# ==========================================
-# PROJET 2 - Fichiers à ne pas envoyer
-# ==========================================
 
-# Données volumineuses
+#Données volumineuses
 projet2/data/fastq/
 projet2/data/tmp/
 projet2/data/reference/
 
-# Résultats des analyses
+#résultats des analyses
 projet2/results/
 
 # Fichiers temporaires Snakemake
