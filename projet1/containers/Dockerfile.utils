@@ -6,3 +6,5 @@ RUN apt-get update && \
         gzip \
         ca-certificates && \
     rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work

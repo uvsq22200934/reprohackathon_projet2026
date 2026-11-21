@@ -48,7 +48,7 @@ rule all: #tous les fichiers à produire
         "results/deseq2/differential_expression.csv",
         "results/deseq2/normalized_counts.tsv",
         "results/deseq2/dds.rds",
-        "results/deseq2/MA_plot_all_genes.pdf",
+        "results/deseq2/MA_plot.pdf",
         "results/deseq2/MA_plot_translation_genes.pdf",
         "results/deseq2/sessionInfo.txt"
 
@@ -160,6 +160,8 @@ rule extract_target_gene_annotations:
         """
 
 # Extraction des gènes liés à la traduction depuis KEGG
+
+# Extraction des gènes liés à la traduction depuis KEGG
 rule extract_translation_genes:
     input:
         pathways="data/kegg/kegg_pathway_genes.txt",
@@ -180,12 +182,14 @@ rule extract_translation_genes:
                 grep "path:sao00970" /work/{input.pathways} |
                 cut -f2 | sed "s/^sao://" > /work/{output.aminoacyl}
 
-                awk "$2 == \\"br:sao03012\\" {{
-                    sub(/^sao:/, \\"\\", \\$1)
-                    print \\$1
-                }}" /work/{input.brite} > /work/{output.factors}
+                awk -F "\\t" '"'"'$2 == "br:sao03012" {{
+                    sub(/^sao:/, "", $1)
+                    print $1
+                }}'"'"' /work/{input.brite} > /work/{output.factors}
             '
         """
+
+        
 
 
 
@@ -387,22 +391,16 @@ rule count_reads:
                 /work/{input.bam}
         """
 
-#analyse différentielle avec DESeq2 
+# Analyse différentielle avec DESeq2
 rule differential_expression:
     input:
         counts=expand("results/counts/{sample}.txt", sample=ECHANTILLONS),
-        translation="data/kegg/translation_related_genes_gff.txt",
-        aminoacyl="data/kegg/aminoacyl_trna_genes.txt",
-        annotations="data/kegg/target_gene_annotations.tsv"
     output:
         csv="results/deseq2/differential_expression.csv",
         normalized="results/deseq2/normalized_counts.tsv",
         dds="results/deseq2/dds.rds",
-        ma_all="results/deseq2/MA_plot_all_genes.pdf",
-        ma_translation="results/deseq2/MA_plot_translation_genes.pdf",
+        ma_all="results/deseq2/MA_plot.pdf",
         session="results/deseq2/sessionInfo.txt"
-
-
     shell:
         """
         mkdir -p results/deseq2
@@ -411,3 +409,22 @@ rule differential_expression:
             deseq2:1.16.1 \
             Rscript scripts/differential_expression.R
         """
+
+
+# Figure 3c : MA plot des gènes impliqués dans la traduction
+rule figure_3c:
+    input:
+        csv="results/deseq2/differential_expression.csv",
+        translation="data/kegg/translation_related_genes_gff.txt",
+        aminoacyl="data/kegg/aminoacyl_trna_genes.txt",
+        annotations="data/kegg/target_gene_annotations.tsv",
+        script="scripts/fig3c.R"
+    output:
+        "results/deseq2/MA_plot_translation_genes.pdf"
+    shell:
+        """
+        Rscript {input.script}
+        """
+
+
+   
