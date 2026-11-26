@@ -59,6 +59,7 @@ rule all: #tous les fichiers à produire
         "data/kegg/translation_related_genes.txt",
         "data/kegg/translation_related_genes_gff.txt",
         "data/kegg/aureowiki/annotations_NCTC8325.tsv",
+        "data/kegg/aminoacyl_trna_synthetases.txt",
         "data/kegg/target_gene_annotations.tsv",
         expand(
             "results/bowtie_index/genome.{ext}",
@@ -78,9 +79,10 @@ rule all: #tous les fichiers à produire
         "results/deseq2/differential_expression_summary.csv",
         "results/deseq2/normalized_counts.tsv",
         "results/deseq2/dds.rds",
-        "results/deseq2/MA_plot_all_genes.pdf",
+        "results/deseq2/MA_plot.pdf",
         "results/deseq2/MA_plot_translation_genes.pdf",
         "results/deseq2/sessionInfo.txt"
+
 
 
 #Téléchargement du génome de référence ( curl est exécuté dans un conteneur pour maîtriser son environnement).
@@ -432,7 +434,7 @@ rule differential_expression:
         summary="results/deseq2/differential_expression_summary.csv",
         normalized="results/deseq2/normalized_counts.tsv",
         dds="results/deseq2/dds.rds",
-        ma_all="results/deseq2/MA_plot_all_genes.pdf",
+        ma_all="results/deseq2/MA_plot.pdf",
         session="results/deseq2/sessionInfo.txt"
     shell:
         """
@@ -444,12 +446,30 @@ rule differential_expression:
         """
 
 
+# pour extraire gènes codant les aminoacyl arnt synthétases
+rule extract_aminoacyl_synthetases:
+    input:
+        genes="data/kegg/aminoacyl_trna_genes.txt",
+        annotations="data/kegg/aureowiki/annotations_NCTC8325.tsv"
+    output:
+        "data/kegg/aminoacyl_trna_synthetases.txt"
+    shell:
+        """
+        docker run --rm --user $(id -u):$(id -g) \
+            -v "$PWD:/work" -w /work \
+            workflow-utils \
+            awk -F '\\t' '
+            NR==FNR {{genes[$1]=1; next}}
+            ($1 in genes) && ($6 ~ /tRNA synthetase/) {{print $1}}
+            ' /work/{input.genes} /work/{input.annotations} > {output}
+        """
+
 # Figure 3c : MA plot des gènes impliqués dans la traduction
 rule figure_3c:
     input:
         csv="results/deseq2/differential_expression.csv",
         translation="data/kegg/translation_related_genes_gff.txt",
-        aminoacyl="data/kegg/aminoacyl_trna_genes.txt",
+        aminoacyl="data/kegg/aminoacyl_trna_synthetases.txt",
         annotations="data/kegg/target_gene_annotations.tsv",
         script="scripts/fig3c.R"
     output:
