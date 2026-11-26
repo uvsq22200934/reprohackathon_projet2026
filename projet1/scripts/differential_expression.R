@@ -87,6 +87,45 @@ write.csv(
     file = "results/deseq2/differential_expression.csv"
 )
 
+# 6. Nombre de genes differentiellement exprimes
+
+res_df <- as.data.frame(res)
+
+significant <- !is.na(res_df$padj) & res_df$padj < 0.05
+
+upregulated <- significant &
+               !is.na(res_df$log2FoldChange) &
+               res_df$log2FoldChange > 0
+
+downregulated <- significant &
+                 !is.na(res_df$log2FoldChange) &
+                 res_df$log2FoldChange < 0
+
+summary <- data.frame(
+    category = c(
+        "Total genes",
+        "Genes tested by DESeq2",
+        "Differentially expressed genes (padj < 0.05)",
+        "Upregulated in Persisters",
+        "Downregulated in Persisters"
+    ),
+    count = c(
+        nrow(res_df),
+        sum(!is.na(res_df$padj)),
+        sum(significant),
+        sum(upregulated),
+        sum(downregulated)
+    )
+)
+
+write.csv(
+    summary,
+    file = "results/deseq2/differential_expression_summary.csv",
+    row.names = FALSE
+)
+
+print(summary)
+
 write.table(
     counts(dds, normalized = TRUE),
     file = "results/deseq2/normalized_counts.tsv",
@@ -189,48 +228,6 @@ plot_custom_MA(
     data = as.data.frame(res),
     title = "Persister vs Control - All genes",
     output_file = "results/deseq2/MA_plot_all_genes.pdf"
-)
-
-# 8. Lecture des gènes liés à la traduction
-
-translation_file <- "data/kegg/translation_related_genes_gff.txt"
-aminoacyl_file <- "data/kegg/aminoacyl_trna_genes.txt"
-annotation_file <- "data/kegg/target_gene_annotations.tsv"
-
-if (!file.exists(translation_file) ||
-    !file.exists(aminoacyl_file) ||
-    !file.exists(annotation_file)) {
-    stop("Un ou plusieurs fichiers d'annotation sont manquants.")
-}
-
-translation_genes <- readLines(translation_file)
-aminoacyl_genes <- readLines(aminoacyl_file)
-
-annotations <- read.delim(
-    annotation_file,
-    header = TRUE,
-    stringsAsFactors = FALSE
-)
-
-# Vérifier les correspondances avec les résultats DESeq2
-
-translation_genes <- intersect(translation_genes, rownames(res))
-aminoacyl_genes <- intersect(aminoacyl_genes, translation_genes)
-
-if (length(translation_genes) == 0) {
-    stop("Aucun gène de traduction ne correspond aux résultats DESeq2.")
-}
-
-# 9. MA-plot des gènes liés à la traduction
-
-res_translation <- as.data.frame(res[translation_genes, ])
-
-plot_custom_MA(
-    data = res_translation,
-    title = "Persister vs Control - Translation-related genes",
-    output_file = "results/deseq2/MA_plot_translation_genes.pdf",
-    annotations = annotations,
-    aminoacyl_genes = aminoacyl_genes
 )
 
 # 10. Informations sur l'environnement R

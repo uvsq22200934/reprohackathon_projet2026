@@ -17,7 +17,36 @@ ADAPTATEUR = "AGATCGGAAGAGC" # séquence adaptateur illumina
 #image du conteneur contenant cutatapt
 IMAGE_CUTADAPT = "docker://quay.io/biocontainers/cutadapt:1.11--py35_0"
 
+# Construction des images Docker nécessaires au workflow
+rule build_images:
+    input:
+        "containers/Dockerfile.bowtie0127",
+        "containers/Dockerfile.featurecounts",
+        "containers/Dockerfile.utils",
+        "containers/Dockerfile.deseq2"
+    output:
+        touch(".snakemake/container_images/images.built")
+    shell:
+        """
+        set -e
+        mkdir -p .snakemake/container_images
+
+        docker build -t bowtie-0127 \
+            -f containers/Dockerfile.bowtie0127 .
+
+        docker build -t featurecounts-146p3 \
+            -f containers/Dockerfile.featurecounts .
+
+        docker build -t workflow-utils \
+            -f containers/Dockerfile.utils .
+
+        docker build -t deseq2:1.16.1 \
+            -f containers/Dockerfile.deseq2 .
+        """
+
+
 rule all: #tous les fichiers à produire
+    default_target: True
     input:
         "data/reference.fasta",
         "data/reference.gff",
@@ -46,9 +75,10 @@ rule all: #tous les fichiers à produire
         expand("results/counts/{sample}.txt", sample=ECHANTILLONS),
         # DIFFERENTIAL EXPRESSION
         "results/deseq2/differential_expression.csv",
+        "results/deseq2/differential_expression_summary.csv",
         "results/deseq2/normalized_counts.tsv",
         "results/deseq2/dds.rds",
-        "results/deseq2/MA_plot.pdf",
+        "results/deseq2/MA_plot_all_genes.pdf",
         "results/deseq2/MA_plot_translation_genes.pdf",
         "results/deseq2/sessionInfo.txt"
 
@@ -291,10 +321,12 @@ rule trim_reads: #nettoyage des reads avec cutadapt
     shell:
         """
         mkdir -p results/trimmed
+
+        # Supprimer les bases de mauvaise qualité et les reads trop courts
         docker run --rm --user $(id -u):$(id -g) \
             -v "$PWD:/work" -w /work \
             quay.io/biocontainers/cutadapt:1.11--py35_0 \
-            cutadapt -q 20 -m 25 -a {params.adapter} \ # supprimer bases mauvaises qualité (-q 20) et reitrer les reads trop courts (-m25)
+            cutadapt -q 20 -m 25 -a {params.adapter} \
                 -o {output} {input}
         """
 
@@ -397,9 +429,10 @@ rule differential_expression:
         counts=expand("results/counts/{sample}.txt", sample=ECHANTILLONS),
     output:
         csv="results/deseq2/differential_expression.csv",
+        summary="results/deseq2/differential_expression_summary.csv",
         normalized="results/deseq2/normalized_counts.tsv",
         dds="results/deseq2/dds.rds",
-        ma_all="results/deseq2/MA_plot.pdf",
+        ma_all="results/deseq2/MA_plot_all_genes.pdf",
         session="results/deseq2/sessionInfo.txt"
     shell:
         """
@@ -423,7 +456,12 @@ rule figure_3c:
         "results/deseq2/MA_plot_translation_genes.pdf"
     shell:
         """
-        Rscript {input.script}
+        mkdir -p results/deseq2
+
+        docker run --rm --user $(id -u):$(id -g) \
+            -v "$PWD:/work" -w /work \
+            deseq2:1.16.1 \
+            Rscript /work/{input.script}
         """
 
 
